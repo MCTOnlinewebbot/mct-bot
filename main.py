@@ -19,13 +19,24 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", "8155930122"))
 REGISTRATION_BONUS = 2.75
 USERS_PAGE_SIZE = 10
 
-# ─── DATABASE ────────────────────────────────────────────────────────────────
-conn = sqlite3.connect("mct.db", check_same_thread=False)
+# ─── DATABASE CONNECTION (POSTGRESQL) ────────────────────────────────────────
+db_url = os.environ.get("DATABASE_URL")
+result = urlparse(db_url)
+
+conn = psycopg2.connect(
+    database=result.path[1:],
+    user=result.username,
+    password=result.password,
+    host=result.hostname,
+    port=result.port
+)
+conn.autocommit = True  # Ensures data is saved immediately
 cur = conn.cursor()
 
-#
+# ─── TABLES (UPDATED FOR POSTGRES) ──────────────────────────────────────────
+# Note: Changed INTEGER PRIMARY KEY to BIGINT and added SERIAL for auto-increment
 cur.execute("""CREATE TABLE IF NOT EXISTS users(
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     name TEXT,
     phone TEXT,
     email TEXT,
@@ -38,8 +49,8 @@ cur.execute("""CREATE TABLE IF NOT EXISTS users(
 )""")
 
 cur.execute("""CREATE TABLE IF NOT EXISTS deposits(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT,
     amount REAL,
     txn TEXT,
     status TEXT DEFAULT 'pending',
@@ -47,8 +58,8 @@ cur.execute("""CREATE TABLE IF NOT EXISTS deposits(
 )""")
 
 cur.execute("""CREATE TABLE IF NOT EXISTS withdraws(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT,
     bank TEXT,
     account TEXT,
     amount REAL,
@@ -57,8 +68,8 @@ cur.execute("""CREATE TABLE IF NOT EXISTS withdraws(
 )""")
 
 cur.execute("""CREATE TABLE IF NOT EXISTS activations(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT,
     email TEXT,
     phone TEXT,
     old_balance REAL DEFAULT 0,
@@ -72,7 +83,7 @@ cur.execute("""CREATE TABLE IF NOT EXISTS settings(
 )""")
 
 cur.execute("""CREATE TABLE IF NOT EXISTS tutorials(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     slot_number INTEGER,
     title TEXT,
     description TEXT,
@@ -81,18 +92,18 @@ cur.execute("""CREATE TABLE IF NOT EXISTS tutorials(
     category TEXT
 )""")
 
-conn.commit()
-
-
-# ─── SETTINGS ────────────────────────────────────────────────────────────────
+# ─── SETTINGS (POSTGRES COMPATIBLE) ──────────────────────────────────────────
 def get_setting(key, default=None):
-    cur.execute("SELECT value FROM settings WHERE key=?", (key,))
+    cur.execute("SELECT value FROM settings WHERE key=%s", (key,)) # Changed ? to %s
     row = cur.fetchone()
     return row[0] if row else default
 
 def set_setting(key, value):
-    cur.execute("INSERT OR REPLACE INTO settings(key, value) VALUES(?,?)", (key, str(value)))
-    conn.commit()
+    # Postgres uses "ON CONFLICT" instead of "INSERT OR REPLACE"
+    cur.execute("""
+        INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    """, (key, str(value)))
 
 if not get_setting("trc20_address"):
     set_setting("trc20_address", "TPHgbNeiG2uahVDk1bUESuZendP87hmyoj")
