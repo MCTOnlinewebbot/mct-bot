@@ -1,8 +1,9 @@
 import os
-import sqlite3
+import psycopg2  # Changed from sqlite3
 import random
 import string
 from datetime import datetime
+from urllib.parse import urlparse  # Added for Postgres parsing
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
