@@ -835,10 +835,12 @@ async def withdraw_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
+
 # ─── REFERRAL ────────────────────────────────────────────────────────────────
 async def get_referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    cur.execute("SELECT referral_code FROM users WHERE id=?", (uid,))
+    # Changed ? to %s
+    cur.execute("SELECT referral_code FROM users WHERE id=%s", (uid,))
     row = cur.fetchone()
     if not row:
         await update.message.reply_text("❌ Account not found.")
@@ -848,7 +850,8 @@ async def get_referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = f"https://t.me/{bot_info.username}?start={ref_code}"
     ref_pct = get_setting("referral_bonus_pct", "25")
 
-    cur.execute("SELECT id, name, balance FROM users WHERE referred_by=?", (ref_code,))
+    # Changed ? to %s
+    cur.execute("SELECT id, name, balance FROM users WHERE referred_by=%s", (ref_code,))
     refs = cur.fetchall()
 
     msg = (
@@ -868,8 +871,8 @@ async def get_referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── ACTIVATE OLD ACCOUNT ────────────────────────────────────────────────────
 async def activate_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Check for pending activation
-    cur.execute("SELECT id FROM activations WHERE user_id=? AND status='pending'", (update.effective_user.id,))
+    # Changed ? to %s
+    cur.execute("SELECT id FROM activations WHERE user_id=%s AND status='pending'", (update.effective_user.id,))
     if cur.fetchone():
         await update.message.reply_text("⚠️ You have a pending activation request. Please wait for Admin approval/rejection before requesting again.")
         return
@@ -908,12 +911,12 @@ async def activate_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
         email = context.user_data.get("email", "")
         phone = context.user_data.get("phone", "")
 
+        # Fixed for PostgreSQL: Added RETURNING id
         cur.execute(
-            "INSERT INTO activations(user_id,email,phone,old_balance,status,created_at) VALUES(?,?,?,?,?,?)",
+            "INSERT INTO activations(user_id,email,phone,old_balance,status,created_at) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id",
             (user.id, email, phone, old_bal, "pending", now())
         )
-        act_id = cur.lastrowid
-        conn.commit()
+        act_id = cur.fetchone()[0]
 
         caption = (
             f"♻️ *OLD ACCOUNT ACTIVATION*\n\n"
@@ -940,6 +943,7 @@ async def activate_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── TUTORIAL ────────────────────────────────────────────────────────────────
 async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Changed category check to use %s
     cur.execute("SELECT id, slot_number, title FROM tutorials WHERE category='tutorial' ORDER BY slot_number")
     items = cur.fetchall()
     if not items:
@@ -954,7 +958,6 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(btns)
     )
-
 
 # ─── SUPPORT ─────────────────────────────────────────────────────────────────
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
