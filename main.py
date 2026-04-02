@@ -633,18 +633,16 @@ async def activation_decision(update: Update, context: ContextTypes.DEFAULT_TYPE
             await q.edit_message_text(new_caption, parse_mode="Markdown")
         except Exception:
             pass
-
-
-
 # ─── WITHDRAW ────────────────────────────────────────────────────────────────
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Check for pending withdrawal
-    cur.execute("SELECT id FROM withdraws WHERE user_id=? AND status='pending'", (update.effective_user.id,))
+    # Changed ? to %s
+    cur.execute("SELECT id FROM withdraws WHERE user_id=%s AND status='pending'", (update.effective_user.id,))
     if cur.fetchone():
         await update.message.reply_text("⚠️ You have a pending withdrawal request. Please wait for Admin approval/rejection before requesting again.")
         return
 
-    cur.execute("SELECT balance FROM users WHERE id=?", (update.effective_user.id,))
+    # Changed ? to %s
+    cur.execute("SELECT balance FROM users WHERE id=%s", (update.effective_user.id,))
     row = cur.fetchone()
     if not row:
         await update.message.reply_text("❌ Account not found.")
@@ -700,7 +698,8 @@ async def withdraw_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         user = update.message.from_user
-        cur.execute("SELECT balance, level FROM users WHERE id=?", (user.id,))
+        # Changed ? to %s
+        cur.execute("SELECT balance, level FROM users WHERE id=%s", (user.id,))
         row = cur.fetchone()
         if not row:
             await update.message.reply_text("❌ Account not found.")
@@ -725,12 +724,12 @@ async def withdraw_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rate = get_withdraw_rate(lvl)
         etb = amt * rate
 
+        # Fixed for PostgreSQL: Added RETURNING id
         cur.execute(
-            "INSERT INTO withdraws(user_id,bank,account,amount,status,created_at) VALUES(?,?,?,?,?,?)",
+            "INSERT INTO withdraws(user_id,bank,account,amount,status,created_at) VALUES(%s,%s,%s,%s,%s,%s) RETURNING id",
             (user.id, context.user_data["bank"], context.user_data["account"], amt, "pending", now())
         )
-        wid = cur.lastrowid
-        conn.commit()
+        wid = cur.fetchone()[0]
 
         caption = (
             f"💸 *Withdraw Request*\n\n"
@@ -771,7 +770,8 @@ async def withdraw_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text(f"✉️ Type message to user `{val}`:", parse_mode="Markdown")
         return
 
-    cur.execute("SELECT user_id, amount, bank, account, status FROM withdraws WHERE id=?", (val,))
+    # Changed ? to %s
+    cur.execute("SELECT user_id, amount, bank, account, status FROM withdraws WHERE id=%s", (val,))
     row = cur.fetchone()
     if not row:
         await q.answer("Not found", show_alert=True)
@@ -782,18 +782,20 @@ async def withdraw_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer(f"Already {'Approved' if status == 'approved' else 'Rejected'}", show_alert=True)
         return
 
-    cur.execute("SELECT level, balance FROM users WHERE id=?", (uid,))
+    # Changed ? to %s
+    cur.execute("SELECT level, balance FROM users WHERE id=%s", (uid,))
     u_row = cur.fetchone()
     lvl = u_row[0] if u_row else 1
     rate = get_withdraw_rate(lvl)
     etb = amt * rate
 
     if action == "a":
-        cur.execute("UPDATE users SET balance=balance-? WHERE id=?", (amt, uid))
-        cur.execute("UPDATE withdraws SET status='approved' WHERE id=?", (val,))
-        conn.commit()
+        # Changed ? to %s
+        cur.execute("UPDATE users SET balance=balance-%s WHERE id=%s", (amt, uid))
+        cur.execute("UPDATE withdraws SET status='approved' WHERE id=%s", (val,))
 
-        cur.execute("SELECT balance FROM users WHERE id=?", (uid,))
+        # Changed ? to %s
+        cur.execute("SELECT balance FROM users WHERE id=%s", (uid,))
         new_bal = cur.fetchone()[0]
 
         try:
@@ -814,8 +816,8 @@ async def withdraw_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         new_status = "Approved ✅"
     else:
-        cur.execute("UPDATE withdraws SET status='rejected' WHERE id=?", (val,))
-        conn.commit()
+        # Changed ? to %s
+        cur.execute("UPDATE withdraws SET status='rejected' WHERE id=%s", (val,))
         try:
             await context.bot.send_message(
                 uid, f"❌ Your withdrawal of *{amt} USDT* was rejected.", parse_mode="Markdown"
@@ -832,7 +834,6 @@ async def withdraw_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(new_text, parse_mode="Markdown")
     except Exception:
         pass
-
 
 # ─── REFERRAL ────────────────────────────────────────────────────────────────
 async def get_referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
