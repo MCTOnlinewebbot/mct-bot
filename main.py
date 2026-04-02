@@ -573,7 +573,8 @@ async def activation_decision(update: Update, context: ContextTypes.DEFAULT_TYPE
         await q.message.reply_text(f"✉️ Type message to user `{val}`:", parse_mode="Markdown")
         return
 
-    cur.execute("SELECT user_id, email, phone, old_balance, status FROM activations WHERE id=?", (val,))
+    # Changed ? to %s
+    cur.execute("SELECT user_id, email, phone, old_balance, status FROM activations WHERE id=%s", (val,))
     data = cur.fetchone()
     if not data:
         await q.answer("Not found", show_alert=True)
@@ -587,9 +588,9 @@ async def activation_decision(update: Update, context: ContextTypes.DEFAULT_TYPE
     if action == "a":
         # Restore old balance and set level
         level = get_trade_level(old_bal)
-        cur.execute("UPDATE users SET balance=balance+?, level=? WHERE id=?", (old_bal, level, uid))
-        cur.execute("UPDATE activations SET status='approved' WHERE id=?", (val,))
-        conn.commit()
+        # Changed ? to %s
+        cur.execute("UPDATE users SET balance=balance+%s, level=%s WHERE id=%s", (old_bal, level, uid))
+        cur.execute("UPDATE activations SET status='approved' WHERE id=%s", (val,))
 
         # Updated Activation success message
         try:
@@ -612,8 +613,8 @@ async def activation_decision(update: Update, context: ContextTypes.DEFAULT_TYPE
             pass
         new_status = "Approved ✅"
     else:
-        cur.execute("UPDATE activations SET status='rejected' WHERE id=?", (val,))
-        conn.commit()
+        # Changed ? to %s
+        cur.execute("UPDATE activations SET status='rejected' WHERE id=%s", (val,))
         try:
             await context.bot.send_message(uid, "❌ Your activation request was rejected. Please contact support.")
         except Exception:
@@ -632,6 +633,7 @@ async def activation_decision(update: Update, context: ContextTypes.DEFAULT_TYPE
             await q.edit_message_text(new_caption, parse_mode="Markdown")
         except Exception:
             pass
+
 
 
 # ─── WITHDRAW ────────────────────────────────────────────────────────────────
