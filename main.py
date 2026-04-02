@@ -10,8 +10,8 @@ from telegram.ext import (
 )
 
 # --- KEEP ALIVE ---
-from keep_alive import run
-run()
+from keep_alive import keep_alive
+keep_alive()
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "8633084590:AAFk567rkAVloZhAu2TsrN1glQHQkG71Fls")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "8155930122"))
