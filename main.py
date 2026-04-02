@@ -158,7 +158,6 @@ async def wrong_input(update: Update, context, msg: str) -> bool:
     await update.message.reply_text(msg)
     return False
 
-
 # ─── MENU ────────────────────────────────────────────────────────────────────
 menu = [
     ["📚 Tutorial", "🆘 Support"],
@@ -280,7 +279,7 @@ async def save_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"*✅ Registration Successful!*\n\n"
         f"*🎉 Congratulations {name}!*\n"
-        f"*You have received a registration bonus of 500 Birr ({REGISTRATION_BONUS} USDT)! 🎁*",
+        f"*You have received a registration bonus of 825 Birr ({REGISTRATION_BONUS} USDT)! 🎁*",
         parse_mode="Markdown"
     )
     await dashboard(update)
