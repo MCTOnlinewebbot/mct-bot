@@ -30,11 +30,10 @@ conn = psycopg2.connect(
     host=result.hostname,
     port=result.port
 )
-conn.autocommit = True  # Ensures data is saved immediately
+conn.autocommit = True  
 cur = conn.cursor()
 
 # ─── TABLES (UPDATED FOR POSTGRES) ──────────────────────────────────────────
-# Note: Changed INTEGER PRIMARY KEY to BIGINT and added SERIAL for auto-increment
 cur.execute("""CREATE TABLE IF NOT EXISTS users(
     id BIGINT PRIMARY KEY,
     name TEXT,
@@ -94,12 +93,11 @@ cur.execute("""CREATE TABLE IF NOT EXISTS tutorials(
 
 # ─── SETTINGS (POSTGRES COMPATIBLE) ──────────────────────────────────────────
 def get_setting(key, default=None):
-    cur.execute("SELECT value FROM settings WHERE key=%s", (key,)) # Changed ? to %s
+    cur.execute("SELECT value FROM settings WHERE key=%s", (key,)) 
     row = cur.fetchone()
     return row[0] if row else default
 
 def set_setting(key, value):
-    # Postgres uses "ON CONFLICT" instead of "INSERT OR REPLACE"
     cur.execute("""
         INSERT INTO settings (key, value) VALUES (%s, %s)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
@@ -112,12 +110,11 @@ if not get_setting("min_withdrawal"):
 if not get_setting("referral_bonus_pct"):
     set_setting("referral_bonus_pct", "25")
 
-
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
 def generate_referral_code():
     while True:
         code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        cur.execute("SELECT id FROM users WHERE referral_code=?", (code,))
+        cur.execute("SELECT id FROM users WHERE referral_code=%s", (code,)) 
         if not cur.fetchone():
             return code
 
@@ -131,7 +128,6 @@ def get_trade_level(amount):
     else: return 6
 
 def get_withdraw_rate(level):
-    # Modified to ensure level 0 still gets a base rate
     return {0: 300, 1: 300, 2: 325, 3: 350, 4: 375, 5: 400, 6: 450}.get(level, 300)
 
 def now():
@@ -167,6 +163,7 @@ menu = [
     ["🔗 Get Referral Link", "📋 Status"],
 ]
 keyboard = ReplyKeyboardMarkup(menu, resize_keyboard=True)
+
 
 
 # ─── START ───────────────────────────────────────────────────────────────────
