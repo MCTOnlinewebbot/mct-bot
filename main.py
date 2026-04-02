@@ -165,11 +165,11 @@ menu = [
 keyboard = ReplyKeyboardMarkup(menu, resize_keyboard=True)
 
 
-
 # ─── START ───────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    cur.execute("SELECT * FROM users WHERE id=?", (update.effective_user.id,))
+    # Changed ? to %s
+    cur.execute("SELECT * FROM users WHERE id=%s", (update.effective_user.id,))
     if cur.fetchone():
         await dashboard(update)
         return
@@ -222,7 +222,8 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ref_input.lower() != "none":
             referred_by = ref_input
         if referred_by:
-            cur.execute("SELECT id FROM users WHERE referral_code=?", (referred_by,))
+            # Changed ? to %s
+            cur.execute("SELECT id FROM users WHERE referral_code=%s", (referred_by,))
             if not cur.fetchone():
                 referred_by = None
 
@@ -235,19 +236,21 @@ async def save_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     referred_by = context.user_data.get("referred_by_final") or context.user_data.get("ref_from")
 
     if referred_by:
-        cur.execute("SELECT id FROM users WHERE referral_code=?", (referred_by,))
+        # Changed ? to %s
+        cur.execute("SELECT id FROM users WHERE referral_code=%s", (referred_by,))
         if not cur.fetchone():
             referred_by = None
 
     ref_code = generate_referral_code()
+    # Changed all ? to %s
     cur.execute(
         "INSERT INTO users(id,name,phone,email,password,referral_code,referred_by,balance,level,bonus_claimed)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+        " VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (user.id, context.user_data["name"], context.user_data["phone"],
          context.user_data["email"], "",
          ref_code, referred_by, REGISTRATION_BONUS, 0, 1)
     )
-    conn.commit()
+    # No conn.commit() needed because autocommit=True is set at the top
 
     try:
         await context.bot.send_message(
@@ -272,7 +275,6 @@ async def save_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"_(Tap to copy — keep it safe!)_",
         parse_mode="Markdown"
     )
-    # Updated registration success message
     await update.message.reply_text(
         f"*✅ Registration Successful!*\n\n"
         f"*🎉 Congratulations {name}!*\n"
@@ -284,13 +286,14 @@ async def save_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── BALANCE ─────────────────────────────────────────────────────────────────
 async def balance(update: Update):
-    cur.execute("SELECT balance, level FROM users WHERE id=?", (update.effective_user.id,))
+    # Changed ? to %s
+    cur.execute("SELECT balance, level FROM users WHERE id=%s", (update.effective_user.id,))
     row = cur.fetchone()
     if not row:
         await update.message.reply_text("❌ Account not found. Type /start to register.")
         return
     b, l = row
-    rate = get_withdraw_rate(l) # ETB Rate is now shown for level 0 as well
+    rate = get_withdraw_rate(l)
     lvl_label = f"Level {l}" if l > 0 else "Level 0 (Deposit ≥ 20 USDT to unlock)"
     await update.message.reply_text(
         f"💰 *Your MCT Balance*\n\n"
@@ -300,7 +303,6 @@ async def balance(update: Update):
         f"💵 ETB Value: *{b * rate:.2f} ETB*",
         parse_mode="Markdown"
     )
-
 
 # ─── STATUS ──────────────────────────────────────────────────────────────────
 async def status(update: Update):
