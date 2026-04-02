@@ -307,11 +307,12 @@ async def balance(update: Update):
 # ─── STATUS ──────────────────────────────────────────────────────────────────
 async def status(update: Update):
     uid = update.effective_user.id
-    cur.execute("SELECT id, amount, created_at FROM deposits WHERE user_id=? AND status='pending'", (uid,))
+    # Changed ? to %s
+    cur.execute("SELECT id, amount, created_at FROM deposits WHERE user_id=%s AND status='pending'", (uid,))
     deps = cur.fetchall()
-    cur.execute("SELECT id, amount, bank, created_at FROM withdraws WHERE user_id=? AND status='pending'", (uid,))
+    cur.execute("SELECT id, amount, bank, created_at FROM withdraws WHERE user_id=%s AND status='pending'", (uid,))
     wds = cur.fetchall()
-    cur.execute("SELECT id, created_at FROM activations WHERE user_id=? AND status='pending'", (uid,))
+    cur.execute("SELECT id, created_at FROM activations WHERE user_id=%s AND status='pending'", (uid,))
     acts = cur.fetchall()
 
     if not deps and not wds and not acts:
@@ -338,10 +339,10 @@ async def status(update: Update):
 # ─── TRADE LEVEL / INVEST ────────────────────────────────────────────────────
 TRADE_LEVEL_MSG = (
     "💼 *MCT Trading Levels*\n\n"
-    "🔹 Trade Level 1: 20 – 99 USDT → 300 ETB\n\n"
-    "🔹 Trade Level 2: 100 – 299 USDT → 325 ETB\n\n"
-    "🔹 Trade Level 3: 300 – 999 USDT → 350 ETB\n\n"
-    "🔹 Trade Level 4: 1,000 – 4,999 USDT → 375 ETB\n\n"
+    "🔹 Trade Level 1: 20 – 99 USDT → 300 ETB Per USDT\n\n"
+    "🔹 Trade Level 2: 100 – 299 USDT → 325 ETB Per USDT\n\n"
+    "🔹 Trade Level 3: 300 – 999 USDT → 350 ETB Per USDT\n\n"
+    "🔹 Trade Level 4: 1,000 – 4,999 USDT → 375 ETB Per USDT\n\n"
     "🔹 Trade Level 5: 5,000 – 9,999 USDT → 400 ETB\n\n"
     "🔹 Trade Level 6: 10,000 – 25,000 USDT → 450 ETB\n\n"
     "📈 Higher levels unlock better trading rewards.\n\n"
@@ -349,8 +350,8 @@ TRADE_LEVEL_MSG = (
 )
 
 async def choose_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Check for pending deposit
-    cur.execute("SELECT id FROM deposits WHERE user_id=? AND status='pending'", (update.effective_user.id,))
+    # Changed ? to %s
+    cur.execute("SELECT id FROM deposits WHERE user_id=%s AND status='pending'", (update.effective_user.id,))
     if cur.fetchone():
         await update.message.reply_text("⚠️ You have a pending deposit request. Please wait for Admin approval/rejection before requesting again.")
         return
@@ -361,8 +362,8 @@ async def choose_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["wrong_attempts"] = 0
 
 async def deposit_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Check for pending deposit
-    cur.execute("SELECT id FROM deposits WHERE user_id=? AND status='pending'", (update.effective_user.id,))
+    # Changed ? to %s
+    cur.execute("SELECT id FROM deposits WHERE user_id=%s AND status='pending'", (update.effective_user.id,))
     if cur.fetchone():
         await update.message.reply_text("⚠️ You have a pending deposit request. Please wait for Admin approval/rejection before requesting again.")
         return
@@ -421,12 +422,12 @@ async def txn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = context.user_data.get("photo")
     amount = context.user_data.get("amount")
 
+    # Fixed for PostgreSQL: Using RETURNING id to get the new row ID
     cur.execute(
-        "INSERT INTO deposits(user_id,amount,txn,status,created_at) VALUES(?,?,?,?,?)",
+        "INSERT INTO deposits(user_id,amount,txn,status,created_at) VALUES(%s,%s,%s,%s,%s) RETURNING id",
         (user.id, amount, txn_id, "pending", now())
     )
-    did = cur.lastrowid
-    conn.commit()
+    did = cur.fetchone()[0]
 
     caption = (
         f"📥 *New Deposit*\n\n"
@@ -451,6 +452,7 @@ async def txn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     context.user_data.clear()
+
 
 
 # ─── DEPOSIT DECISION ────────────────────────────────────────────────────────
