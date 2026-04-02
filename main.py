@@ -1,6 +1,7 @@
 import os
 import psycopg2  # Changed from sqlite3
 import random
+import asyncio
 import string
 from datetime import datetime
 from urllib.parse import urlparse  # Added for Postgres parsing
@@ -1462,13 +1463,18 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data.clear()
 
 
-# ─── BROADCAST ───────────────────────────────────────────────────────────────
+# ─── UPDATED SAFE BROADCAST ──────────────────────────────────────────────────
 async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE,
                        text: str, photo=None, video=None):
     cur.execute("SELECT id FROM users")
     users = cur.fetchall()
+    
     success, fail = 0, 0
-    for (uid,) in users:
+    total = len(users)
+    
+    status_msg = await update.message.reply_text(f"🚀 Starting safe broadcast to {total} users...")
+
+    for i, (uid,) in enumerate(users):
         try:
             if photo:
                 await context.bot.send_photo(uid, photo, caption=text, parse_mode="Markdown")
@@ -1479,7 +1485,21 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE,
             success += 1
         except Exception:
             fail += 1
-    await update.message.reply_text(f"📢 *Broadcast Complete!*\n✅ Sent: {success}\n❌ Failed: {fail}", parse_mode="Markdown")
+
+        # This is the "Magic" part that saves your bot:
+        if i % 25 == 0 and i > 0:
+            await asyncio.sleep(1.5)
+            if i % 100 == 0:
+                await status_msg.edit_text(f"⏳ Progress: {i}/{total} users reached...")
+
+    await update.message.reply_text(
+        f"✅ *Broadcast Complete!*\n\n"
+        f"📊 Total: `{total}`\n"
+        f"👍 Success: `{success}`\n"
+        f"👎 Failed/Blocked: `{fail}`",
+        parse_mode="Markdown"
+    )
+
 
 # ─── MEDIA HANDLER ───────────────────────────────────────────────────────────
 async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
