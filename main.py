@@ -1010,7 +1010,8 @@ async def show_users_page(q, page: int):
     offset = page * USERS_PAGE_SIZE
     cur.execute("SELECT COUNT(*) FROM users")
     total = cur.fetchone()[0]
-    cur.execute("SELECT id, name, balance, level FROM users ORDER BY id DESC LIMIT ? OFFSET ?",
+    # Changed ? to %s for PostgreSQL
+    cur.execute("SELECT id, name, balance, level FROM users ORDER BY id DESC LIMIT %s OFFSET %s",
                 (USERS_PAGE_SIZE, offset))
     users = cur.fetchall()
 
@@ -1038,7 +1039,8 @@ async def show_users_page(q, page: int):
 def tut_slots_markup():
     btns = []
     for slot in range(1, 11):
-        cur.execute("SELECT id, title FROM tutorials WHERE category='tutorial' AND slot_number=?", (slot,))
+        # Changed ? to %s
+        cur.execute("SELECT id, title FROM tutorials WHERE category='tutorial' AND slot_number=%s", (slot,))
         row = cur.fetchone()
         if row:
             btns.append([InlineKeyboardButton(f"✅ Slot {slot}: {row[1]}", callback_data=f"adm_tslot_{slot}")])
@@ -1057,8 +1059,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     if data == "start_invest":
-        # Check for pending deposit in callback
-        cur.execute("SELECT id FROM deposits WHERE user_id=? AND status='pending'", (update.effective_user.id,))
+        # Changed ? to %s
+        cur.execute("SELECT id FROM deposits WHERE user_id=%s AND status='pending'", (update.effective_user.id,))
         if cur.fetchone():
             await q.message.reply_text("⚠️ You have a pending deposit request. Please wait for Admin approval/rejection before requesting again.")
             return
@@ -1081,7 +1083,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("tut_view_"):
         tid = int(data.split("_")[-1])
-        cur.execute("SELECT title, description, file_id, media_type FROM tutorials WHERE id=?", (tid,))
+        # Changed ? to %s
+        cur.execute("SELECT title, description, file_id, media_type FROM tutorials WHERE id=%s", (tid,))
         row = cur.fetchone()
         if not row:
             await q.message.reply_text("❌ Tutorial not found.")
@@ -1153,7 +1156,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("adm_tslot_"):
         slot = int(data.split("_")[-1])
-        cur.execute("SELECT id, title, description, file_id, media_type FROM tutorials WHERE category='tutorial' AND slot_number=?", (slot,))
+        # Changed ? to %s
+        cur.execute("SELECT id, title, description, file_id, media_type FROM tutorials WHERE category='tutorial' AND slot_number=%s", (slot,))
         row = cur.fetchone()
         if row:
             tid, title, desc, file_id, mt = row
@@ -1192,8 +1196,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("adm_tdel_"):
         slot = int(data.split("_")[-1])
-        cur.execute("DELETE FROM tutorials WHERE category='tutorial' AND slot_number=?", (slot,))
-        conn.commit()
+        # Changed ? to %s
+        cur.execute("DELETE FROM tutorials WHERE category='tutorial' AND slot_number=%s", (slot,))
         await q.message.reply_text(f"✅ Slot {slot} deleted.", reply_markup=tut_slots_markup())
 
     elif data == "adm_sup":
@@ -1287,10 +1291,22 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("usr_del_"):
         uid = int(data.split("_")[-1])
-        cur.execute("DELETE FROM users WHERE id=?", (uid,))
-        conn.commit()
+        # Changed ? to %s
+        cur.execute("DELETE FROM users WHERE id=%s", (uid,))
         await q.message.reply_text(f"✅ User `{uid}` deleted.", parse_mode="Markdown")
 
+# Fixed the get_setting/set_setting logic for PostgreSQL purpose
+def get_setting(key, default=None):
+    cur.execute("SELECT value FROM settings WHERE key=%s", (key,))
+    row = cur.fetchone()
+    return row[0] if row else default
+
+def set_setting(key, value):
+    # PostgreSQL syntax for "Insert or Replace"
+    cur.execute("""
+        INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    """, (key, str(value)))
 
 # ─── ADMIN TEXT HANDLER ──────────────────────────────────────────────────────
 async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
