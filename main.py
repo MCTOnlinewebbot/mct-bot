@@ -1507,13 +1507,14 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif update.message.video:
                 file_id = update.message.video.file_id
                 media_type = "video"
-            cur.execute("DELETE FROM tutorials WHERE category='tutorial' AND slot_number=?", (slot,))
+            
+            # Updated for PostgreSQL %s
+            cur.execute("DELETE FROM tutorials WHERE category='tutorial' AND slot_number=%s", (slot,))
             cur.execute(
-                "INSERT INTO tutorials(slot_number,title,description,file_id,media_type,category) VALUES(?,?,?,?,?,?)",
+                "INSERT INTO tutorials(slot_number,title,description,file_id,media_type,category) VALUES(%s,%s,%s,%s,%s,%s)",
                 (slot, context.user_data.get("tut_title"), context.user_data.get("tut_desc"),
                  file_id, media_type, "tutorial")
             )
-            conn.commit()
             await update.message.reply_text("✅ Tutorial saved!", reply_markup=tut_slots_markup())
             context.user_data.clear()
             return
@@ -1559,7 +1560,9 @@ async def approve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except (IndexError, ValueError):
         await update.message.reply_text("Usage: /approve <deposit_id>")
         return
-    cur.execute("SELECT user_id, amount, status FROM deposits WHERE id=?", (deposit_id,))
+        
+    # Updated for PostgreSQL %s
+    cur.execute("SELECT user_id, amount, status FROM deposits WHERE id=%s", (deposit_id,))
     data = cur.fetchone()
     if not data:
         await update.message.reply_text("❌ Deposit not found.")
@@ -1569,9 +1572,11 @@ async def approve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     uid, amount = data[0], data[1]
     level = get_trade_level(amount)
-    cur.execute("UPDATE users SET balance=balance+?, level=? WHERE id=?", (amount, level, uid))
-    cur.execute("UPDATE deposits SET status='approved' WHERE id=?", (deposit_id,))
-    conn.commit()
+    
+    # Updated for PostgreSQL %s
+    cur.execute("UPDATE users SET balance=balance+%s, level=%s WHERE id=%s", (amount, level, uid))
+    cur.execute("UPDATE deposits SET status='approved' WHERE id=%s", (deposit_id,))
+    
     await update.message.reply_text(f"✅ Deposit {deposit_id} approved.")
     try:
         await context.bot.send_message(uid, f"✅ Deposit of *{amount} USDT* approved! Level: {level}", parse_mode="Markdown")
@@ -1637,38 +1642,44 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(ROBOT_MSG, reply_markup=SUPPORT_BUTTON)
 
 
-# ─── DB MIGRATION ────────────────────────────────────────────────────────────
+# ─── DB MIGRATION (POSTGRESQL VERSION) ───────────────────────────────────────
 def migrate_db():
-    migrations = [
-        "ALTER TABLE users ADD COLUMN referral_code TEXT",
-        "ALTER TABLE users ADD COLUMN referred_by TEXT",
-        "ALTER TABLE users ADD COLUMN bonus_claimed INTEGER DEFAULT 0",
-        "ALTER TABLE deposits ADD COLUMN created_at TEXT",
-        "ALTER TABLE withdraws ADD COLUMN created_at TEXT",
-        "ALTER TABLE activations ADD COLUMN old_balance REAL DEFAULT 0",
-        "ALTER TABLE tutorials ADD COLUMN slot_number INTEGER",
+    # Helper to handle migrations in PostgreSQL
+    def column_exists(table, column):
+        cur.execute(f"""
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name='{table}' AND column_name='{column}';
+        """)
+        return cur.fetchone() is not None
+
+    migration_tasks = [
+        ("users", "referral_code", "TEXT"),
+        ("users", "referred_by", "TEXT"),
+        ("users", "bonus_claimed", "INTEGER DEFAULT 0"),
+        ("deposits", "created_at", "TEXT"),
+        ("withdraws", "created_at", "TEXT"),
+        ("activations", "old_balance", "REAL DEFAULT 0"),
+        ("activations", "txn", "TEXT"),
+        ("tutorials", "slot_number", "INTEGER")
     ]
-    for sql in migrations:
-        try:
-            cur.execute(sql)
-        except Exception:
-            pass
 
-    try:
-        cur.execute("ALTER TABLE activations ADD COLUMN txn TEXT")
-    except Exception:
-        pass
+    for table, col, col_type in migration_tasks:
+        if not column_exists(table, col):
+            try:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+            except Exception:
+                pass
 
+    # Handle missing referral codes
     cur.execute("SELECT id FROM users WHERE referral_code IS NULL OR referral_code=''")
     for (uid,) in cur.fetchall():
         code = generate_referral_code()
-        cur.execute("UPDATE users SET referral_code=? WHERE id=?", (code, uid))
+        cur.execute("UPDATE users SET referral_code=%s WHERE id=%s", (code, uid))
 
+    # Handle missing bonuses
     cur.execute("SELECT id FROM users WHERE bonus_claimed=0 OR bonus_claimed IS NULL")
     for (uid,) in cur.fetchall():
-        cur.execute("UPDATE users SET balance=balance+?, bonus_claimed=1 WHERE id=?", (REGISTRATION_BONUS, uid))
-
-    conn.commit()
+        cur.execute("UPDATE users SET balance=balance+%s, bonus_claimed=1 WHERE id=%s", (REGISTRATION_BONUS, uid))
 
 
 # ─── RUN ─────────────────────────────────────────────────────────────────────
@@ -1688,5 +1699,7 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(admin_callback,
                     pattern="^(adm_|usr_|start_invest|contact_support|tut_view_)"))
 
-    print("MCT Bot is running...")
+    print("MCT Bot is running on PostgreSQL...")
     app.run_polling()
+
+
