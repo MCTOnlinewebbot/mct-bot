@@ -1379,12 +1379,12 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif action == "tut_media":
         if update.message.text.lower() == "skip":
             slot = context.user_data.get("tut_slot")
-            cur.execute("DELETE FROM tutorials WHERE category='tutorial' AND slot_number=?", (slot,))
+            # Changed ? to %s
+            cur.execute("DELETE FROM tutorials WHERE category='tutorial' AND slot_number=%s", (slot,))
             cur.execute(
-                "INSERT INTO tutorials(slot_number,title,description,file_id,media_type,category) VALUES(?,?,?,?,?,?)",
+                "INSERT INTO tutorials(slot_number,title,description,file_id,media_type,category) VALUES(%s,%s,%s,%s,%s,%s)",
                 (slot, context.user_data["tut_title"], context.user_data["tut_desc"], None, "text", "tutorial")
             )
-            conn.commit()
             await update.message.reply_text("✅ Tutorial saved!", reply_markup=tut_slots_markup())
             context.user_data.clear()
 
@@ -1404,8 +1404,9 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif action == "view_user":
         try:
             uid = int(update.message.text)
+            # Changed ? to %s
             cur.execute(
-                "SELECT id,name,phone,email,balance,level,referral_code,referred_by FROM users WHERE id=?", (uid,)
+                "SELECT id,name,phone,email,balance,level,referral_code,referred_by FROM users WHERE id=%s", (uid,)
             )
             row = cur.fetchone()
             if not row:
@@ -1438,8 +1439,8 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try:
             amt = float(update.message.text)
             uid = context.user_data["admin_target_uid"]
-            cur.execute("UPDATE users SET balance=balance+? WHERE id=?", (amt, uid))
-            conn.commit()
+            # Changed ? to %s
+            cur.execute("UPDATE users SET balance=balance+%s WHERE id=%s", (amt, uid))
             await update.message.reply_text(f"✅ Added *{amt} USDT* to `{uid}`.", parse_mode="Markdown")
             try:
                 await context.bot.send_message(uid, f"💰 *{amt} USDT* has been added to your balance by MCT Admin!", parse_mode="Markdown")
@@ -1453,8 +1454,8 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try:
             amt = float(update.message.text)
             uid = context.user_data["admin_target_uid"]
-            cur.execute("UPDATE users SET balance=MAX(0, balance-?) WHERE id=?", (amt, uid))
-            conn.commit()
+            # Changed ? to %s
+            cur.execute("UPDATE users SET balance=GREATEST(0, balance-%s) WHERE id=%s", (amt, uid))
             await update.message.reply_text(f"✅ Subtracted *{amt} USDT* from `{uid}`.", parse_mode="Markdown")
         except (ValueError, KeyError):
             await update.message.reply_text("❌ Invalid amount.")
@@ -1479,7 +1480,6 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE,
         except Exception:
             fail += 1
     await update.message.reply_text(f"📢 *Broadcast Complete!*\n✅ Sent: {success}\n❌ Failed: {fail}", parse_mode="Markdown")
-
 
 # ─── MEDIA HANDLER ───────────────────────────────────────────────────────────
 async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
