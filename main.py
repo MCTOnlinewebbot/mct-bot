@@ -9,6 +9,10 @@ from telegram.ext import (
     CallbackQueryHandler, filters, ContextTypes
 )
 
+# --- KEEP ALIVE ---
+from keep_alive import run
+run()
+
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "8633084590:AAFk567rkAVloZhAu2TsrN1glQHQkG71Fls")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "8155930122"))
 REGISTRATION_BONUS = 2.75
@@ -18,6 +22,7 @@ USERS_PAGE_SIZE = 10
 conn = sqlite3.connect("mct.db", check_same_thread=False)
 cur = conn.cursor()
 
+#
 cur.execute("""CREATE TABLE IF NOT EXISTS users(
     id INTEGER PRIMARY KEY,
     name TEXT,
@@ -114,7 +119,8 @@ def get_trade_level(amount):
     else: return 6
 
 def get_withdraw_rate(level):
-    return {0: 0, 1: 300, 2: 325, 3: 350, 4: 375, 5: 400, 6: 450}.get(level, 300)
+    # Modified to ensure level 0 still gets a base rate
+    return {0: 300, 1: 300, 2: 325, 3: 350, 4: 375, 5: 400, 6: 450}.get(level, 300)
 
 def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -195,7 +201,6 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif step == "email":
         context.user_data["email"] = update.message.text
-        # If already have a referral code from the link, skip asking
         if context.user_data.get("ref_from"):
             context.user_data["register"] = "save"
             await save_user(update, context)
@@ -204,9 +209,7 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("👥 Do you have a referral code? Enter it, or type *none*:", parse_mode="Markdown")
 
     elif step == "ref":
-        user = update.effective_user
         ref_input = update.message.text.strip()
-
         referred_by = None
         if ref_input.lower() != "none":
             referred_by = ref_input
@@ -219,14 +222,10 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["register"] = "save"
         await save_user(update, context)
 
-    elif step == "save":
-        pass  # handled by save_user directly
-
 async def save_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     referred_by = context.user_data.get("referred_by_final") or context.user_data.get("ref_from")
 
-    # Validate referral code exists
     if referred_by:
         cur.execute("SELECT id FROM users WHERE referral_code=?", (referred_by,))
         if not cur.fetchone():
@@ -265,6 +264,7 @@ async def save_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"_(Tap to copy — keep it safe!)_",
         parse_mode="Markdown"
     )
+    # Updated registration success message
     await update.message.reply_text(
         f"*✅ Registration Successful!*\n\n"
         f"*🎉 Congratulations {name}!*\n"
@@ -282,7 +282,7 @@ async def balance(update: Update):
         await update.message.reply_text("❌ Account not found. Type /start to register.")
         return
     b, l = row
-    rate = get_withdraw_rate(l)
+    rate = get_withdraw_rate(l) # ETB Rate is now shown for level 0 as well
     lvl_label = f"Level {l}" if l > 0 else "Level 0 (Deposit ≥ 20 USDT to unlock)"
     await update.message.reply_text(
         f"💰 *Your MCT Balance*\n\n"
@@ -339,12 +339,24 @@ TRADE_LEVEL_MSG = (
 )
 
 async def choose_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Check for pending deposit
+    cur.execute("SELECT id FROM deposits WHERE user_id=? AND status='pending'", (update.effective_user.id,))
+    if cur.fetchone():
+        await update.message.reply_text("⚠️ You have a pending deposit request. Please wait for Admin approval/rejection before requesting again.")
+        return
+
     await update.message.reply_text(TRADE_LEVEL_MSG, parse_mode="Markdown")
     context.user_data["awaiting_amount"] = True
     context.user_data["invest_min"] = 20
     context.user_data["wrong_attempts"] = 0
 
 async def deposit_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Check for pending deposit
+    cur.execute("SELECT id FROM deposits WHERE user_id=? AND status='pending'", (update.effective_user.id,))
+    if cur.fetchone():
+        await update.message.reply_text("⚠️ You have a pending deposit request. Please wait for Admin approval/rejection before requesting again.")
+        return
+
     await update.message.reply_text(
         "💰 *MCT Deposit*\n\n"
         "You can deposit from *1 USDT* and above.\n"
@@ -361,7 +373,7 @@ async def receive_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         amount = float(update.message.text)
     except ValueError:
-        reset = await wrong_input(update, context, "❌ Please enter a valid number (e.g. 50).")
+        await wrong_input(update, context, "❌ Please enter a valid number (e.g. 50).")
         return
 
     if amount < invest_min:
@@ -392,7 +404,7 @@ async def txn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     txn_id = update.message.text.strip()
     if len(txn_id) < 5:
-        reset = await wrong_input(update, context, "❌ Please enter a valid Transaction ID (TXN).")
+        await wrong_input(update, context, "❌ Please enter a valid Transaction ID (TXN).")
         return
 
     user = update.message.from_user
@@ -462,7 +474,6 @@ async def deposit_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur.execute("UPDATE deposits SET status='approved' WHERE id=?", (val,))
         conn.commit()
 
-        # Referral bonus on first deposit
         ref_pct = float(get_setting("referral_bonus_pct", "25"))
         cur.execute("SELECT referred_by FROM users WHERE id=?", (uid,))
         ref_row = cur.fetchone()
@@ -561,16 +572,21 @@ async def activation_decision(update: Update, context: ContextTypes.DEFAULT_TYPE
         cur.execute("UPDATE activations SET status='approved' WHERE id=?", (val,))
         conn.commit()
 
+        # Updated Activation success message
         try:
             await context.bot.send_message(
                 uid,
-                f"📌 *Your Account is Activated successfully!*\n\n"
-                f"To recover your account, please send a small amount payment to verify ownership.\n\n"
-                f"Send *Minimum 1 USDT – Maximum 20 USDT* to the following *TRC20* Address:\n\n"
+                "📌 *Your Account is Activated successfully!*\n\n"
+                "We are reaching out to inform you that your account has been inactive for several months. "
+                "To ensure your account remains fully functional and to verify your ownership, please complete the activation process.\n\n"
+                "Good news: We have already migrated your old account balance to this account. "
+                "You can view your current funds in the \"Balance\" section once activation is complete.\n\n"
+                "You can reactivate your account by making a small verification deposit. Please send a minimum of 1 USDT (up to a maximum of 20 USDT) to the following *TRC20* Address:\n\n"
                 f"`{trc20()}`\n\n"
-                f"👆👆👆👆 👆👆👆👆\n\n"
-                f"Tap the address to copy.\n\n"
-                f"📸 After sending payment, upload your payment screenshot.",
+                "👆👆👆👆 👆👆👆👆\n\n"
+                "Tap the address to copy.\n\n"
+                "📸 After sending payment, upload your payment screenshot. "
+                "Once the transaction is confirmed, your account will be successfully activated and ready for use.",
                 parse_mode="Markdown"
             )
         except Exception:
@@ -601,6 +617,12 @@ async def activation_decision(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ─── WITHDRAW ────────────────────────────────────────────────────────────────
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Check for pending withdrawal
+    cur.execute("SELECT id FROM withdraws WHERE user_id=? AND status='pending'", (update.effective_user.id,))
+    if cur.fetchone():
+        await update.message.reply_text("⚠️ You have a pending withdrawal request. Please wait for Admin approval/rejection before requesting again.")
+        return
+
     cur.execute("SELECT balance FROM users WHERE id=?", (update.effective_user.id,))
     row = cur.fetchone()
     if not row:
@@ -653,7 +675,7 @@ async def withdraw_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             amt = float(update.message.text)
         except ValueError:
-            reset = await wrong_input(update, context, "❌ Please enter a valid number.")
+            await wrong_input(update, context, "❌ Please enter a valid number.")
             return
 
         user = update.message.from_user
@@ -804,7 +826,6 @@ async def get_referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = f"https://t.me/{bot_info.username}?start={ref_code}"
     ref_pct = get_setting("referral_bonus_pct", "25")
 
-    # Referral list
     cur.execute("SELECT id, name, balance FROM users WHERE referred_by=?", (ref_code,))
     refs = cur.fetchall()
 
@@ -825,6 +846,12 @@ async def get_referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── ACTIVATE OLD ACCOUNT ────────────────────────────────────────────────────
 async def activate_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Check for pending activation
+    cur.execute("SELECT id FROM activations WHERE user_id=? AND status='pending'", (update.effective_user.id,))
+    if cur.fetchone():
+        await update.message.reply_text("⚠️ You have a pending activation request. Please wait for Admin approval/rejection before requesting again.")
+        return
+
     await update.message.reply_text("📧 Enter the *Email* of your old account:", parse_mode="Markdown")
     context.user_data["activate"] = "email"
     context.user_data["wrong_attempts"] = 0
@@ -849,13 +876,12 @@ async def activate_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             old_bal = float(update.message.text)
         except ValueError:
-            reset = await wrong_input(update, context, "❌ Please enter a valid amount (e.g. 50).")
+            await wrong_input(update, context, "❌ Please enter a valid amount (e.g. 50).")
             return
 
         context.user_data["old_balance"] = old_bal
         context.user_data["activate"] = None
 
-        # Submit directly to admin — no payment before approval
         user = update.message.from_user
         email = context.user_data.get("email", "")
         phone = context.user_data.get("phone", "")
@@ -1005,8 +1031,13 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not data.startswith("tut_view_"):
             return
 
-    # ── public callbacks ──
     if data == "start_invest":
+        # Check for pending deposit in callback
+        cur.execute("SELECT id FROM deposits WHERE user_id=? AND status='pending'", (update.effective_user.id,))
+        if cur.fetchone():
+            await q.message.reply_text("⚠️ You have a pending deposit request. Please wait for Admin approval/rejection before requesting again.")
+            return
+
         context.user_data["awaiting_amount"] = True
         context.user_data["invest_min"] = 1
         context.user_data["wrong_attempts"] = 0
@@ -1043,7 +1074,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text(caption, parse_mode="Markdown")
         return
 
-    # ── admin-only callbacks below ──
     if data.startswith("adm_users_"):
         page = int(data.split("_")[-1])
         await show_users_page(q, page)
@@ -1347,7 +1377,7 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"   ID: `{uid2}`\n"
                     f"   Email: `{email}`\n"
                     f"   Phone Number: `{phone}`\n"
-                    f"   💰 Balance: *{bal:.4f} USDT*  |  Level: *{lvl}*\n"
+                    f"   💰 Balance: *{bal:.4f} USDT* |  Level: *{lvl}*\n"
                     f"   🎁 Referral Bonus: *{ref_pct}%*\n"
                     f"   Referred by: `{ref_by or 'none'}`\n"
                     f"   Referral code: `{ref_code}`",
@@ -1414,7 +1444,6 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE,
 async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # Admin media flows
     if user_id == ADMIN_ID:
         action = context.user_data.get("admin_action")
 
@@ -1464,7 +1493,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
             return
 
-    # User payment screenshot
     if context.user_data.get("awaiting_screenshot"):
         if update.message.photo:
             context.user_data["photo"] = update.message.photo[-1].file_id
@@ -1515,7 +1543,6 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
-    # Admin text flows
     if user_id == ADMIN_ID and context.user_data.get("admin_action"):
         await admin_text_handler(update, context)
         return
@@ -1547,7 +1574,6 @@ async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Menu buttons
     if text == "🔥 Choose Trade Level":
         await choose_level(update, context)
     elif text == "💰 Deposit":
@@ -1587,19 +1613,16 @@ def migrate_db():
         except Exception:
             pass
 
-    # Remove old txn column from activations if needed (silently)
     try:
         cur.execute("ALTER TABLE activations ADD COLUMN txn TEXT")
     except Exception:
         pass
 
-    # Generate referral codes for existing users
     cur.execute("SELECT id FROM users WHERE referral_code IS NULL OR referral_code=''")
     for (uid,) in cur.fetchall():
         code = generate_referral_code()
         cur.execute("UPDATE users SET referral_code=? WHERE id=?", (code, uid))
 
-    # Grant registration bonus to existing users who haven't received it
     cur.execute("SELECT id FROM users WHERE bonus_claimed=0 OR bonus_claimed IS NULL")
     for (uid,) in cur.fetchall():
         cur.execute("UPDATE users SET balance=balance+?, bonus_claimed=1 WHERE id=?", (REGISTRATION_BONUS, uid))
