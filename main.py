@@ -469,7 +469,8 @@ async def deposit_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text(f"✉️ Type message to user `{val}`:", parse_mode="Markdown")
         return
 
-    cur.execute("SELECT user_id, amount, txn, status FROM deposits WHERE id=?", (val,))
+    # Changed ? to %s
+    cur.execute("SELECT user_id, amount, txn, status FROM deposits WHERE id=%s", (val,))
     data = cur.fetchone()
     if not data:
         await q.answer("Deposit not found", show_alert=True)
@@ -482,22 +483,26 @@ async def deposit_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "a":
         level = get_trade_level(amt)
-        cur.execute("UPDATE users SET balance=balance+?, level=? WHERE id=?", (amt, level, uid))
-        cur.execute("UPDATE deposits SET status='approved' WHERE id=?", (val,))
-        conn.commit()
+        # Changed ? to %s
+        cur.execute("UPDATE users SET balance=balance+%s, level=%s WHERE id=%s", (amt, level, uid))
+        cur.execute("UPDATE deposits SET status='approved' WHERE id=%s", (val,))
 
         ref_pct = float(get_setting("referral_bonus_pct", "25"))
-        cur.execute("SELECT referred_by FROM users WHERE id=?", (uid,))
+        # Changed ? to %s
+        cur.execute("SELECT referred_by FROM users WHERE id=%s", (uid,))
         ref_row = cur.fetchone()
+        
         if ref_row and ref_row[0]:
-            cur.execute("SELECT COUNT(*) FROM deposits WHERE user_id=? AND status='approved'", (uid,))
+            # Changed ? to %s
+            cur.execute("SELECT COUNT(*) FROM deposits WHERE user_id=%s AND status='approved'", (uid,))
             if cur.fetchone()[0] == 1:
                 bonus = round(amt * ref_pct / 100, 4)
-                cur.execute("SELECT id FROM users WHERE referral_code=?", (ref_row[0],))
+                # Changed ? to %s
+                cur.execute("SELECT id FROM users WHERE referral_code=%s", (ref_row[0],))
                 ref_user = cur.fetchone()
                 if ref_user:
-                    cur.execute("UPDATE users SET balance=balance+? WHERE id=?", (bonus, ref_user[0]))
-                    conn.commit()
+                    # Changed ? to %s
+                    cur.execute("UPDATE users SET balance=balance+%s WHERE id=%s", (bonus, ref_user[0]))
                     try:
                         await context.bot.send_message(
                             ref_user[0],
@@ -508,7 +513,8 @@ async def deposit_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except Exception:
                         pass
 
-        cur.execute("SELECT balance, level FROM users WHERE id=?", (uid,))
+        # Changed ? to %s
+        cur.execute("SELECT balance, level FROM users WHERE id=%s", (uid,))
         u_row = cur.fetchone()
         new_bal, new_lvl = u_row
         rate = get_withdraw_rate(new_lvl)
@@ -529,8 +535,8 @@ async def deposit_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         new_status = "Approved ✅"
     else:
-        cur.execute("UPDATE deposits SET status='rejected' WHERE id=?", (val,))
-        conn.commit()
+        # Changed ? to %s
+        cur.execute("UPDATE deposits SET status='rejected' WHERE id=%s", (val,))
         try:
             await context.bot.send_message(
                 uid, f"❌ Your deposit of *{amt} USDT* was rejected.", parse_mode="Markdown"
@@ -550,6 +556,7 @@ async def deposit_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text(new_caption, parse_mode="Markdown")
         except Exception:
             pass
+
 
 
 # ─── ACTIVATION DECISION ─────────────────────────────────────────────────────
